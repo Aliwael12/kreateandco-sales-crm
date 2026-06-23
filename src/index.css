@@ -1,0 +1,109 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-display: 'Syne', system-ui, -apple-system, sans-serif;
+  --font-mono: 'DM Mono', ui-monospace, monospace;
+
+  --color-navy: #0b1f4b;
+
+  /* Brand palette — primary #70113F (deep wine), secondary #C6D077 (yellow-green).
+   * The historic `major`/`bitter` token names are retained and remapped to the
+   * new palette so component classes (bg-major, text-bitter, …) need no changes. */
+  --color-primary: #70113f;
+  --color-secondary: #c6d077;
+  --color-major: #70113f;
+  --color-major-light: #f6e7ef;
+  --color-major-mid: #a8597f;
+  --color-bitter: #c6d077;
+  --color-ghost: #f4f5f9;
+
+  --color-line: #e2e4ee;
+  --color-line-strong: #c8cadc;
+
+  --color-ink-1: #0b1f4b;
+  --color-ink-2: #4a527a;
+  --color-ink-3: #8a90b8;
+  --color-ink-4: #c0c4d8;
+
+  --color-ok: #0f9e6e;
+  --color-ok-light: #e6f7f2;
+  --color-warn: #b87209;
+  --color-warn-light: #fef3dc;
+  --color-bad: #d63c2e;
+  --color-bad-light: #fdecea;
+  --color-info: #1565c0;
+  --color-info-light: #e3f0fc;
+  --color-grape: #70113f;
+  --color-grape-light: #f6e7ef;
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--color-ghost);
+    color: var(--color-ink-1);
+    font-size: 13.5px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border-radius: 4px;
+  }
+
+  /* Thicker, always-visible horizontal scrollbar — used on the Pipeline
+   * kanban board and the My Projects sheet, both of which are wider
+   * than the viewport and need an obvious scroll affordance. */
+  .pipeline-scroll,
+  .sheet-scroll {
+    scrollbar-color: var(--color-major-mid) var(--color-ghost);
+    scrollbar-width: thin;
+  }
+  .pipeline-scroll::-webkit-scrollbar,
+  .sheet-scroll::-webkit-scrollbar {
+    height: 10px;
+  }
+  .pipeline-scroll::-webkit-scrollbar-track,
+  .sheet-scroll::-webkit-scrollbar-track {
+    background: var(--color-ghost);
+    border-radius: 6px;
+  }
+  .pipeline-scroll::-webkit-scrollbar-thumb,
+  .sheet-scroll::-webkit-scrollbar-thumb {
+    background: var(--color-major-mid);
+    border-radius: 6px;
+  }
+  .pipeline-scroll::-webkit-scrollbar-thumb:hover,
+  .sheet-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--color-major);
+  }
+}
+
+@utility font-display {
+  font-family: var(--font-display);
+}
+
+@utility font-mono-num {
+  font-family: var(--font-mono);
+}

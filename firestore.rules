@@ -1,0 +1,176 @@
+rules_version = '2';
+
+// kreateandco Sales Platform — Firestore Security Rules
+//
+// Role model (matches AuthContext helpers):
+//   Admin                — read/write everything
+//   Sales Head, BD       — read everything, write only own deals/reminders
+//   Rep, Intern          — read/write only own deals/reminders
+//   Anyone signed in     — read users/projects/stages/merchants
+//
+// Activities are server-written only (Cloud Functions).
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── helpers ────────────────────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function myProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function myRole() {
+      return myProfile().role;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && myRole() == 'Admin';
+    }
+
+    function isHeadOrBD() {
+      return isSignedIn() && (myRole() == 'Head' || myRole() == 'Sales Head' || myRole() == 'BD');
+    }
+
+    function isSalesHead() {
+      // Sales leadership is stored as 'Head'; 'Sales Head' kept for legacy docs.
+      return isSignedIn() && (myRole() == 'Head' || myRole() == 'Sales Head');
+    }
+
+    function canSeeAll() {
+      return isAdmin() || isHeadOrBD();
+    }
+
+    function isOwner(repId) {
+      return isSignedIn() && request.auth.uid == repId;
+    }
+
+    // ── users ──────────────────────────────────────────────────────────
+    // Anyone signed in can read team profiles (avatars, names appear in UI).
+    // Only Admin can create/delete users. Admin can update any field;
+    // Sales Head can update only the `projectIds` array (used by the
+    // "Manage members" affordance on the Admin → Projects section).
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+                    || (isSalesHead()
+                        && request.resource.data.diff(resource.data)
+                              .affectedKeys()
+                              .hasOnly(['projectIds', 'updatedAt']));
+    }
+
+    // ── projects ───────────────────────────────────────────────────────
+    match /projects/{projectId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ── stages ─────────────────────────────────────────────────────────
+    match /stages/{stageId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ── merchants ──────────────────────────────────────────────────────
+    // Master merchant database — everyone can read and contribute.
+    match /merchants/{merchantId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+
+    // ── industries ─────────────────────────────────────────────────────
+    // Master list of industry options for merchants. Everyone signed in can
+    // read it (populates the dropdowns); only Admin can add/remove.
+    match /industries/{industryId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ── deals ──────────────────────────────────────────────────────────
+    // Read: Admin/Head/BD see all; Rep/Intern see only own.
+    // Write:
+    //   Admin       → any field on any deal
+    //   Sales Head  → any field on any deal (used for reassignment)
+    //   Owner (Rep) → any field on their own deal, including repId (so a
+    //                 rep can hand a deal off to another rep themselves)
+    match /deals/{dealId} {
+      allow read: if isSignedIn() && (canSeeAll() || isOwner(resource.data.repId));
+
+      allow create: if isSignedIn()
+                    && (isAdmin() || isOwner(request.resource.data.repId))
+                    && request.resource.data.createdBy == request.auth.uid;
+
+      allow update: if isSignedIn() && (
+        isAdmin()
+        || isSalesHead()
+        || isOwner(resource.data.repId)
+      );
+
+      allow delete: if isSignedIn() && (isAdmin() || isOwner(resource.data.repId));
+    }
+
+    // ── reminders ──────────────────────────────────────────────────────
+    // Create: admins/heads/BDs can create reminders for anyone (used for
+    // "assignment" notifications when reassigning a deal). Reps can
+    // create reminders for themselves or with type=='assignment' so
+    // they can notify another rep when they hand off their own deal.
+    match /reminders/{reminderId} {
+      allow read: if isSignedIn() && (canSeeAll() || isOwner(resource.data.repId));
+
+      allow create: if isSignedIn() && (
+        isAdmin()
+        || canSeeAll()
+        || isOwner(request.resource.data.repId)
+        || request.resource.data.type == 'assignment'
+      );
+
+      allow update: if isSignedIn() && (
+        isAdmin()
+        || (isOwner(resource.data.repId)
+            && request.resource.data.repId == resource.data.repId)
+      );
+
+      allow delete: if isSignedIn() && (isAdmin() || isOwner(resource.data.repId));
+    }
+
+    // ── tasks ──────────────────────────────────────────────────────────
+    // Call assignments. Admins and Sales Heads create / delete / assign
+    // tasks to reps. BD can read all tasks but not author them; reps &
+    // interns see only their own. The assignee (or an Admin) can update the
+    // status fields on a task.
+    match /tasks/{taskId} {
+      allow read: if isSignedIn() && (canSeeAll() || isOwner(resource.data.assigneeId));
+
+      allow create: if (isAdmin() || isSalesHead())
+                    && request.resource.data.createdBy == request.auth.uid;
+
+      allow update: if isAdmin()
+                    || (isOwner(resource.data.assigneeId)
+                        && request.resource.data.assigneeId == resource.data.assigneeId
+                        && request.resource.data.diff(resource.data)
+                              .affectedKeys()
+                              .hasOnly(['status', 'statusNote', 'statusUpdatedAt',
+                                        'statusUpdatedBy', 'updatedAt']));
+
+      allow delete: if isAdmin() || isSalesHead();
+    }
+
+    // ── activities ─────────────────────────────────────────────────────
+    // Append-only log. Any signed-in user can write an entry tagged with
+    // their own UID; nobody can edit or delete (Cloud Functions use the
+    // Admin SDK which bypasses these rules and can clean up if needed).
+    // Read access is restricted to Admin/Head/BD.
+    match /activities/{activityId} {
+      allow read: if isSignedIn() && canSeeAll();
+      allow create: if isSignedIn()
+                    && request.resource.data.who == request.auth.uid;
+      allow update, delete: if false;
+    }
+  }
+}

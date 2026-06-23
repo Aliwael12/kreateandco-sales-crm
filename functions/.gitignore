@@ -1,0 +1,8 @@
+node_modules
+lib
+*.log
+
+# Env / secrets
+.env
+.env.local
+.env.*.local

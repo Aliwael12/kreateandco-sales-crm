@@ -1,0 +1,17 @@
+{
+  "name": "kreateandco-migration",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "One-shot Firebase→Supabase migration tooling for the kreateandco Sales CRM. Standalone from the app build.",
+  "scripts": {
+    "export": "node export.mjs",
+    "import": "node import.mjs",
+    "import:dry": "node import.mjs --dry-run",
+    "verify": "node verify.mjs"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.10.0",
+    "pg": "^8.13.1"
+  }
+}

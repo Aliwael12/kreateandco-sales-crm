@@ -1,0 +1,48 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Env / secrets
+.env
+.env.*.local
+.env.local
+
+# Firebase
+.firebase/
+firebase-debug.log
+firestore-debug.log
+*.serviceaccount.json
+service-account*.json
+*-firebase-adminsdk-*.json
+
+# One-shot CSV exports from Google Sheets (contain real customer data)
+/*.csv
+*.import.csv
+
+# Migration: exported Firebase data + password hashes + scrypt secrets.
+# NEVER commit these — they contain real customer data and credentials.
+migration/data/
+!migration/data/scrypt.json.example
+migration/node_modules/
+migration/.env

@@ -1,0 +1,7 @@
+{
+  "_comment": "Copy this to scrypt.json (gitignored) and fill from Firebase Console → Authentication → (⋮ menu, top-right of the Users table) → Password hash parameters. These are PROJECT-LEVEL and identical for every user. Without them, imported users cannot keep their passwords.",
+  "base64_signer_key": "PASTE_base64_signer_key_HERE",
+  "base64_salt_separator": "PASTE_base64_salt_separator_HERE",
+  "rounds": 8,
+  "mem_cost": 14
+}
