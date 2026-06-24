@@ -38,11 +38,50 @@ export interface User {
   updatedAt: Timestamp
 }
 
+// One line of a bundle: a number of videos drawn from a specific (normal)
+// project. projectName is denormalized so a bundle stays readable even if the
+// referenced project is later renamed/removed.
+export interface BundleItem {
+  projectId: string
+  projectName: string
+  videos: number
+}
+
+// A package belongs to a project and comes in two shapes:
+//  • Normal project → { id, videos, price } — a plain video count at a price
+//    (e.g. UGC offering 10 / 20 / 30 videos).
+//  • Bundle project  → { id, items, price } — a cross-project mix at one price
+//    (e.g. 10 videos from UGC + 20 from Influencers).
+// `videos` is set on normal packages; `items` is set on bundle packages.
+// The display label is derived at render time (see packageLabel()).
+export interface Package {
+  id: string
+  videos?: number
+  items?: BundleItem[]
+  price: number
+  // Optional number of creators for this package. Shown only when set
+  // (undefined / null = not specified, nothing displayed).
+  creators?: number
+}
+
+// 'normal' = a regular project (UGC, Influencers) whose packages are plain
+// video counts. 'bundle' = a project that mixes videos from several normal
+// projects into a single priced package.
+export type ProjectKind = 'normal' | 'bundle'
+
 export interface Project {
   id: string
   name: string
   color: string
   description?: string
+  // 'normal' (default) or 'bundle'. Defaults to 'normal' for every existing
+  // project (the column defaults to 'normal' in the DB).
+  kind?: ProjectKind
+  // Packages an admin defined for this project. Stored as jsonb; editable any
+  // time. A deal on this project may be categorized into one of these (see
+  // Deal.packageId + the snapshot fields). For a bundle project this holds a
+  // single cross-project package.
+  packages?: Package[]
   // When true the project is finished and lives under the "Completed" view on
   // My Projects; new-work pickers hide it. Defaults to false (in progress).
   completed?: boolean
@@ -116,6 +155,15 @@ export interface Deal {
   status: string
   rate: string
   comments: string
+  // Which project package this lead is categorized into (e.g. the "20" UGC
+  // package). Empty string = none chosen. `rate` stays independent of the
+  // package price (the package price is the catalog amount; rate is the
+  // negotiated deal value).
+  packageId: string
+  // Snapshot of the chosen package, captured at pick-time so later edits to the
+  // project's package definitions never silently rewrite historical deals.
+  // Undefined when no package is chosen.
+  packageSnapshot?: Package
   createdBy: string
   createdAt: Timestamp
   updatedAt: Timestamp

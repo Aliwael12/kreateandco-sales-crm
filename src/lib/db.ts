@@ -20,6 +20,7 @@ import type {
   Deal,
   Industry,
   Merchant,
+  Package,
   Platform,
   Project,
   Reminder,
@@ -114,6 +115,10 @@ export function mapProject(r: Row): Project {
     name: r.name ?? '',
     color: r.color ?? '',
     description: r.description ?? '',
+    kind: r.kind === 'bundle' ? 'bundle' : 'normal',
+    // jsonb → already-parsed array (Supabase deserializes jsonb). Default to []
+    // for projects created before packages existed.
+    packages: Array.isArray(r.packages) ? (r.packages as Package[]) : [],
     completed: r.completed ?? false,
     completedAt: ts(r.completed_at) ?? undefined,
     createdAt: tsReq(r.created_at),
@@ -162,6 +167,8 @@ export function mapDeal(r: Row): Deal {
     status: r.status ?? '',
     rate: r.rate ?? '',
     comments: r.comments ?? '',
+    packageId: r.package_id ?? '',
+    packageSnapshot: (r.package_snapshot as Package | null) ?? undefined,
     createdBy: r.created_by ?? '',
     updatedBy: r.updated_by ?? '',
     createdAt: tsReq(r.created_at),

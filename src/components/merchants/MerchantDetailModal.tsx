@@ -393,12 +393,6 @@ function MerchantDetailContent({
                       placeholder="Add a name…"
                     />
                     <ContactField
-                      label="Role"
-                      value={c.role}
-                      onChange={(v) => updateContact(i, 'role', v)}
-                      placeholder="e.g. Branch Manager"
-                    />
-                    <ContactField
                       label="Phone"
                       value={c.phone}
                       onChange={(v) => updateContact(i, 'phone', v)}

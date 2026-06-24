@@ -10,6 +10,7 @@ import {
   type ActivityKind,
   type Deal,
   type Merchant,
+  type Package,
   type Reminder,
   type ReminderType,
   type TaskStatus,
@@ -91,6 +92,29 @@ export async function updateDealFields(
   if (fields.merchantName !== undefined) patch.merchant_name = fields.merchantName
   if (fields.status !== undefined) patch.status = fields.status
   const { error } = await supabase.from(COL.deals).update(patch).eq('id', dealId)
+  check(error)
+  refreshAfterWrite(COL.deals)
+}
+
+/**
+ * Categorize a deal into one of its project's packages (or clear it). We write
+ * BOTH the package id and a snapshot of the package at pick-time, so later
+ * edits to the project's package definitions never rewrite this historical
+ * deal. Pass `null` to clear the package.
+ */
+export async function setDealPackage(
+  dealId: string,
+  pkg: Package | null,
+  updatedBy: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from(COL.deals)
+    .update({
+      package_id: pkg?.id ?? '',
+      package_snapshot: pkg ?? null,
+      updated_by: updatedBy,
+    })
+    .eq('id', dealId)
   check(error)
   refreshAfterWrite(COL.deals)
 }

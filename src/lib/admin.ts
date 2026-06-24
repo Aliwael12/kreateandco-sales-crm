@@ -1,6 +1,13 @@
 import { supabase } from './supabase'
 import { newId } from './db'
-import { COL, type Project, type Stage, type User } from './types'
+import {
+  COL,
+  type Package,
+  type Project,
+  type ProjectKind,
+  type Stage,
+  type User,
+} from './types'
 
 interface CreateUserPayload {
   name: string
@@ -114,6 +121,8 @@ interface NewProjectInput {
   color: string
   description?: string
   memberIds: string[]
+  kind?: ProjectKind
+  packages?: Package[]
 }
 
 export async function createProject(input: NewProjectInput): Promise<string> {
@@ -123,6 +132,8 @@ export async function createProject(input: NewProjectInput): Promise<string> {
     name: input.name.trim(),
     color: input.color,
     description: input.description?.trim() ?? '',
+    kind: input.kind ?? 'normal',
+    packages: input.packages ?? [],
   })
   if (error) throw new Error(error.message)
   // (Member projectIds are patched separately by the Admin UI, as before.)
@@ -131,7 +142,11 @@ export async function createProject(input: NewProjectInput): Promise<string> {
 
 export async function updateProject(
   projectId: string,
-  patch: Partial<Pick<Project, 'name' | 'color' | 'description'>>,
+  // These keys all share their column names, so (like name/color/description)
+  // the camelCase key maps straight to the column and can go through .update().
+  patch: Partial<
+    Pick<Project, 'name' | 'color' | 'description' | 'kind' | 'packages'>
+  >,
 ): Promise<void> {
   const { error } = await supabase
     .from(COL.projects)

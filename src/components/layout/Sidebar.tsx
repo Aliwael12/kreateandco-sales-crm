@@ -72,14 +72,19 @@ export default function Sidebar({ collapsed, onToggle, profile }: Props) {
         </button>
         <div
           className={clsx(
-            'overflow-hidden whitespace-nowrap transition-opacity',
+            'flex items-center overflow-hidden whitespace-nowrap transition-opacity',
             collapsed && 'pointer-events-none opacity-0',
           )}
         >
-          <div className="font-display text-[17px] font-extrabold leading-none">
-            kreateandco
-          </div>
-          <div className="text-[10px] text-white/30">Sales Platform</div>
+          {/* White tile behind the logo — the mark's wine color matches the
+              dark sidebar, so it needs a light backing to stay visible. */}
+          <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-white p-1.5">
+            <img
+              src="/logo.png"
+              alt="kreateandco"
+              className="h-full w-full object-contain"
+            />
+          </span>
         </div>
       </div>
 

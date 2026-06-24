@@ -24,13 +24,17 @@ import { useSubcategories } from '@/hooks/useSubcategories'
 import { usePlatforms } from '@/hooks/usePlatforms'
 import {
   COL,
+  type BundleItem,
+  type Package,
   type Project,
+  type ProjectKind,
   type Stage,
   type Subcategory,
   type User,
   type Role,
   ROLES,
 } from '@/lib/types'
+import { newId } from '@/lib/db'
 import {
   useProfile,
   canSeeAdmin,
@@ -612,7 +616,8 @@ function ProjectsSection() {
   // so the scoped reader returns the full deals listener here, matching
   // what the prior unscoped useCollection<Deal> did.
   const { data: deals } = useScopedDeals()
-  const [addOpen, setAddOpen] = useState(false)
+  // Which kind of project the "add" modal is creating (null = closed).
+  const [addKind, setAddKind] = useState<ProjectKind | null>(null)
   const [editing, setEditing] = useState<Project | null>(null)
   const [managingMembers, setManagingMembers] = useState<Project | null>(null)
 
@@ -664,9 +669,18 @@ function ProjectsSection() {
       <header className="mb-4 flex items-center justify-between">
         <h2 className="font-display text-[14px] font-bold">Projects</h2>
         {fullAdmin && (
-          <Button size="sm" onClick={() => setAddOpen(true)}>
-            <Plus size={12} /> New Project
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={() => setAddKind('normal')}>
+              <Plus size={12} /> New Project
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setAddKind('bundle')}
+            >
+              <Plus size={12} /> New Bundle
+            </Button>
+          </div>
         )}
       </header>
 
@@ -690,6 +704,11 @@ function ProjectsSection() {
                 />
                 <div className="flex flex-1 items-center gap-2">
                   <span className="text-[13.5px] font-semibold">{p.name}</span>
+                  {p.kind === 'bundle' && (
+                    <span className="rounded-full bg-major-light px-2 py-px text-[10px] font-bold uppercase tracking-wider text-major">
+                      Bundle
+                    </span>
+                  )}
                   {p.completed && (
                     <span className="rounded-full bg-ok-light px-2 py-px text-[10px] font-bold uppercase tracking-wider text-ok">
                       Completed
@@ -753,10 +772,11 @@ function ProjectsSection() {
       )}
 
       <ProjectModal
-        mode={addOpen ? 'add' : editing ? 'edit' : null}
+        mode={addKind ? 'add' : editing ? 'edit' : null}
+        addKind={addKind ?? 'normal'}
         project={editing}
         onClose={() => {
-          setAddOpen(false)
+          setAddKind(null)
           setEditing(null)
         }}
       />
@@ -772,19 +792,35 @@ function ProjectsSection() {
 
 function ProjectModal({
   mode,
+  addKind,
   project,
   onClose,
 }: {
   mode: 'add' | 'edit' | null
+  // Which kind to create when mode === 'add'. Ignored in edit mode (the
+  // project's own kind is used and not changed).
+  addKind: ProjectKind
   project: Project | null
   onClose: () => void
 }) {
   const me = useProfile()
   const toast = useToast()
+  const { data: allProjects } = useCollection<Project>(COL.projects)
   const [name, setName] = useState('')
   const [color, setColor] = useState('#5B4FCF')
   const [description, setDescription] = useState('')
+  const [packages, setPackages] = useState<Package[]>([])
+  // Bundle state: cross-project line items + one price (a bundle is stored as a
+  // single package { id, items, price }).
+  const [bundleItems, setBundleItems] = useState<BundleItem[]>([])
+  const [bundlePrice, setBundlePrice] = useState(0)
+  const [bundlePkgId, setBundlePkgId] = useState('')
   const [busy, setBusy] = useState(false)
+
+  // The kind being edited/created.
+  const kind: ProjectKind =
+    mode === 'edit' ? (project?.kind ?? 'normal') : addKind
+  const isBundle = kind === 'bundle'
 
   // Seed the form when opening in edit mode, or clear it in add mode —
   // syncing local state to the mode/project props.
@@ -794,10 +830,19 @@ function ProjectModal({
       setName(project.name)
       setColor(project.color)
       setDescription(project.description ?? '')
+      setPackages(project.packages ?? [])
+      const bundlePkg = project.packages?.[0]
+      setBundleItems(bundlePkg?.items ?? [])
+      setBundlePrice(bundlePkg?.price ?? 0)
+      setBundlePkgId(bundlePkg?.id ?? '')
     } else if (mode === 'add') {
       setName('')
       setColor('#5B4FCF')
       setDescription('')
+      setPackages([])
+      setBundleItems([])
+      setBundlePrice(0)
+      setBundlePkgId('')
     }
     /* eslint-enable react-hooks/set-state-in-effect */
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -805,37 +850,69 @@ function ProjectModal({
 
   if (!mode) return null
 
+  // Normal projects an admin can mix into a bundle (exclude bundles themselves
+  // and the project being edited).
+  const bundleableProjects = allProjects.filter(
+    (p) => (p.kind ?? 'normal') === 'normal' && p.id !== project?.id,
+  )
+
+  // For a bundle, build its single package; for a normal project, clean the
+  // package list.
+  function packagesToSave(): Package[] {
+    if (isBundle) {
+      const items = bundleItems.filter(
+        (it) => it.projectId && Number(it.videos) > 0,
+      )
+      if (items.length === 0) return []
+      return [
+        {
+          id: bundlePkgId || newId(),
+          items,
+          price: Math.max(0, Number(bundlePrice) || 0),
+        },
+      ]
+    }
+    return cleanPackages(packages)
+  }
+
   async function save() {
     if (!name.trim()) return
     setBusy(true)
     try {
       if (mode === 'edit' && project) {
-        await updateProject(project.id, { name, color, description })
+        await updateProject(project.id, {
+          name,
+          color,
+          description,
+          packages: packagesToSave(),
+        })
         await logActivity({
           who: me.id,
           whoName: me.name,
           kind: 'project.update',
-          text: `updated project ${name}`,
+          text: `updated ${isBundle ? 'bundle' : 'project'} ${name}`,
           refId: project.id,
           refKind: 'project',
         })
-        toast.show('Project updated')
+        toast.show(isBundle ? 'Bundle updated' : 'Project updated')
       } else {
         const id = await createProject({
           name,
           color,
           description,
           memberIds: [],
+          kind,
+          packages: packagesToSave(),
         })
         await logActivity({
           who: me.id,
           whoName: me.name,
           kind: 'project.create',
-          text: `created project ${name}`,
+          text: `created ${isBundle ? 'bundle' : 'project'} ${name}`,
           refId: id,
           refKind: 'project',
         })
-        toast.show('Project created')
+        toast.show(isBundle ? 'Bundle created' : 'Project created')
       }
       onClose()
     } finally {
@@ -843,11 +920,20 @@ function ProjectModal({
     }
   }
 
+  const title =
+    mode === 'edit'
+      ? isBundle
+        ? 'Edit Bundle'
+        : 'Edit Project'
+      : isBundle
+        ? 'New Bundle'
+        : 'New Project'
+
   return (
     <Modal
       open={!!mode}
       onClose={onClose}
-      title={mode === 'edit' ? 'Edit Project' : 'New Project'}
+      title={title}
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={busy}>
@@ -860,10 +946,10 @@ function ProjectModal({
       }
     >
       <Field
-        label="Project Name *"
+        label={isBundle ? 'Bundle Name *' : 'Project Name *'}
         value={name}
         onChange={setName}
-        placeholder="e.g. WE Telecom"
+        placeholder={isBundle ? 'e.g. Bundle X' : 'e.g. WE Telecom'}
       />
       <div className="flex flex-col gap-1">
         <label className="text-[11px] font-semibold uppercase tracking-wider text-ink-2">
@@ -880,9 +966,286 @@ function ProjectModal({
         label="Description"
         value={description}
         onChange={setDescription}
-        placeholder="What is this project about?"
+        placeholder={
+          isBundle ? 'What does this bundle include?' : 'What is this project about?'
+        }
       />
+      {isBundle ? (
+        <BundleEditor
+          items={bundleItems}
+          price={bundlePrice}
+          projects={bundleableProjects}
+          onItemsChange={setBundleItems}
+          onPriceChange={setBundlePrice}
+        />
+      ) : (
+        <PackageEditor packages={packages} onChange={setPackages} />
+      )}
     </Modal>
+  )
+}
+
+// Editor for a bundle: cross-project line items (N videos from project A) plus
+// one bundle price. A bundle is stored as a single package { id, items, price }.
+function BundleEditor({
+  items,
+  price,
+  projects,
+  onItemsChange,
+  onPriceChange,
+}: {
+  items: BundleItem[]
+  price: number
+  projects: Project[]
+  onItemsChange: (next: BundleItem[]) => void
+  onPriceChange: (next: number) => void
+}) {
+  function addItem() {
+    const first = projects[0]
+    onItemsChange([
+      ...items,
+      {
+        projectId: first?.id ?? '',
+        projectName: first?.name ?? '',
+        videos: 1,
+      },
+    ])
+  }
+  function patchItem(index: number, patch: Partial<BundleItem>) {
+    onItemsChange(items.map((it, i) => (i === index ? { ...it, ...patch } : it)))
+  }
+  function removeItem(index: number) {
+    onItemsChange(items.filter((_, i) => i !== index))
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between">
+        <label className="text-[11px] font-semibold uppercase tracking-wider text-ink-2">
+          Bundle contents
+        </label>
+        <button
+          type="button"
+          onClick={addItem}
+          disabled={projects.length === 0}
+          className="flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-semibold text-major transition-colors hover:bg-major-light disabled:opacity-40"
+        >
+          <Plus size={12} /> Add project
+        </button>
+      </div>
+
+      {projects.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-line px-3 py-2 text-[12px] italic text-ink-3">
+          No normal projects to bundle yet — create UGC / Influencers projects
+          first, then mix them here.
+        </p>
+      ) : items.length === 0 ? (
+        <p className="text-[12px] italic text-ink-3">
+          A bundle mixes videos from several projects (e.g. 10 from UGC + 20 from
+          Influencers) at one price.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {items.map((it, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-1.5 rounded-xl border border-line bg-ghost/50 px-3 py-2"
+            >
+              <input
+                type="number"
+                min={1}
+                value={it.videos}
+                onChange={(e) =>
+                  patchItem(i, {
+                    videos: Math.max(0, Number(e.target.value) || 0),
+                  })
+                }
+                className="w-16 rounded-md border-[1.5px] border-line bg-white px-2 py-1 text-[13px] outline-none focus:border-major"
+              />
+              <span className="text-[12.5px] text-ink-2">videos from</span>
+              <select
+                value={it.projectId}
+                onChange={(e) => {
+                  const proj = projects.find((p) => p.id === e.target.value)
+                  patchItem(i, {
+                    projectId: proj?.id ?? '',
+                    projectName: proj?.name ?? '',
+                  })
+                }}
+                className="flex-1 rounded-md border-[1.5px] border-line bg-white px-2 py-1 text-[13px] outline-none focus:border-major"
+              >
+                {/* Keep a stale project selectable so editing a bundle whose
+                    source project was deleted doesn't silently drop the line. */}
+                {!projects.some((p) => p.id === it.projectId) && it.projectId && (
+                  <option value={it.projectId}>{it.projectName} (removed)</option>
+                )}
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => removeItem(i)}
+                aria-label="Remove line"
+                title="Remove line"
+                className="rounded-md p-1 text-ink-3 transition-colors hover:bg-bad-light hover:text-bad"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-1 flex items-center gap-2">
+        <label className="text-[11px] font-semibold uppercase tracking-wider text-ink-3">
+          Bundle price
+        </label>
+        <input
+          type="number"
+          min={0}
+          value={price}
+          onChange={(e) => onPriceChange(Math.max(0, Number(e.target.value) || 0))}
+          placeholder="0"
+          className="w-32 rounded-md border-[1.5px] border-line bg-white px-2 py-1 text-[13px] outline-none focus:border-major"
+        />
+      </div>
+    </div>
+  )
+}
+
+// Drop packages with no videos before saving, and coerce numbers, so the
+// stored array stays clean regardless of half-finished editing. `creators` is
+// optional — only persisted when it's a positive number (otherwise omitted, so
+// it reads back as undefined and isn't displayed).
+function cleanPackages(packages: Package[]): Package[] {
+  return packages
+    .map((p) => {
+      const creators = Math.max(0, Number(p.creators) || 0)
+      return {
+        id: p.id,
+        videos: Math.max(0, Number(p.videos) || 0),
+        price: Math.max(0, Number(p.price) || 0),
+        ...(creators > 0 ? { creators } : {}),
+      }
+    })
+    .filter((p) => p.videos > 0)
+}
+
+// Editor for a project's packages. Each package is simply a number of videos
+// at a price (e.g. 10 videos / 20 videos / 30 videos). A project can have many.
+function PackageEditor({
+  packages,
+  onChange,
+}: {
+  packages: Package[]
+  onChange: (next: Package[]) => void
+}) {
+  function addPackage() {
+    onChange([...packages, { id: newId(), videos: 1, price: 0 }])
+  }
+  function removePackage(pid: string) {
+    onChange(packages.filter((p) => p.id !== pid))
+  }
+  function patchPackage(pid: string, patch: Partial<Package>) {
+    onChange(packages.map((p) => (p.id === pid ? { ...p, ...patch } : p)))
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between">
+        <label className="text-[11px] font-semibold uppercase tracking-wider text-ink-2">
+          Packages
+        </label>
+        <button
+          type="button"
+          onClick={addPackage}
+          className="flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-semibold text-major transition-colors hover:bg-major-light"
+        >
+          <Plus size={12} /> Add package
+        </button>
+      </div>
+
+      {packages.length === 0 ? (
+        <p className="text-[12px] italic text-ink-3">
+          No packages yet. A package is a number of videos at a price (e.g. 10,
+          20, or 30 videos).
+        </p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {packages.map((pkg) => (
+            <div
+              key={pkg.id}
+              className="flex items-center gap-2 rounded-xl border border-line bg-ghost/50 px-3 py-2"
+            >
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  min={1}
+                  value={pkg.videos}
+                  onChange={(e) =>
+                    patchPackage(pkg.id, {
+                      videos: Math.max(0, Number(e.target.value) || 0),
+                    })
+                  }
+                  className="w-20 rounded-md border-[1.5px] border-line bg-white px-2 py-1 text-[13px] outline-none focus:border-major"
+                />
+                <span className="text-[12.5px] text-ink-2">videos</span>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  min={0}
+                  value={pkg.creators ?? ''}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    patchPackage(pkg.id, {
+                      // Empty input → undefined (not specified, not displayed).
+                      creators: v === '' ? undefined : Math.max(0, Number(v) || 0),
+                    })
+                  }}
+                  placeholder="—"
+                  title="Number of creators (optional)"
+                  className="w-16 rounded-md border-[1.5px] border-line bg-white px-2 py-1 text-[13px] outline-none focus:border-major"
+                />
+                <span className="text-[12.5px] text-ink-2">creators</span>
+              </div>
+
+              <div className="ml-auto flex items-center gap-1.5">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-3">
+                  Price
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  value={pkg.price}
+                  onChange={(e) =>
+                    patchPackage(pkg.id, {
+                      price: Math.max(0, Number(e.target.value) || 0),
+                    })
+                  }
+                  placeholder="0"
+                  className="w-28 rounded-md border-[1.5px] border-line bg-white px-2 py-1 text-[13px] outline-none focus:border-major"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => removePackage(pkg.id)}
+                aria-label="Remove package"
+                title="Remove package"
+                className="rounded-md p-1 text-ink-3 transition-colors hover:bg-bad-light hover:text-bad"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

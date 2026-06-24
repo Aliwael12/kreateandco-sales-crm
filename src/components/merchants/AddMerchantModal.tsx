@@ -165,19 +165,13 @@ export default function AddMerchantModal({
           placeholder="Full name"
         />
         <Field
-          label="Role"
-          value={form.contactRole}
-          onChange={(v) => setForm({ ...form, contactRole: v })}
-          placeholder="e.g. Branch Manager"
-        />
-      </FormRow>
-      <FormRow>
-        <Field
           label="Phone"
           value={form.phone}
           onChange={(v) => setForm({ ...form, phone: v })}
           placeholder="+20 1X XXXX XXXX"
         />
+      </FormRow>
+      <FormRow>
         <Field
           label="Email"
           value={form.email}
