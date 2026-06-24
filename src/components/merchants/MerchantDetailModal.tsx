@@ -25,6 +25,7 @@ import {
 } from '@/lib/data'
 import { supabase } from '@/lib/supabase'
 import { newId } from '@/lib/db'
+import { packageLabel } from '@/lib/packages'
 import { useProfile, isAdmin, canSeeAll, canReassign } from '@/context/auth'
 import { useToast } from '@/components/ui/toast-context'
 import clsx from 'clsx'
@@ -622,7 +623,14 @@ function AddToProjectControl({
   const [projectId, setProjectId] = useState('')
   const [assigneeId, setAssigneeId] = useState(me.id)
   const [statusName, setStatusName] = useState('')
+  // Optional package this lead will be on in the chosen project/bundle ('' =
+  // none). Reset whenever the project changes (packages are project-specific).
+  const [packageId, setPackageId] = useState('')
   const [busy, setBusy] = useState(false)
+
+  // Packages offered by the currently-selected project (or bundle).
+  const projectPackages =
+    projects.find((p) => p.id === projectId)?.packages ?? []
 
   const orderedStages = useMemo(
     () => stages.slice().sort((a, b) => a.order - b.order),
@@ -684,6 +692,10 @@ function AddToProjectControl({
     try {
       const assignee = users.find((u) => u.id === assigneeId)
       const project = projects.find((p) => p.id === projectId)
+      // Snapshot the chosen package (if any) onto the deal at pick-time, so
+      // later edits to the project's packages don't rewrite this deal.
+      const chosenPackage =
+        projectPackages.find((pkg) => pkg.id === packageId) ?? null
 
       const { error } = await supabase.from(COL.deals).insert({
         id: newId(),
@@ -694,6 +706,8 @@ function AddToProjectControl({
         status: effectiveStatus,
         rate: '',
         comments: '',
+        package_id: chosenPackage?.id ?? '',
+        package_snapshot: chosenPackage,
         created_by: me.id,
         updated_by: me.id,
       })
@@ -724,6 +738,7 @@ function AddToProjectControl({
 
       // Reset for a possible next add; keep the assignee/status picks.
       setProjectId('')
+      setPackageId('')
       setOpen(false)
     } catch (err) {
       toast.show(
@@ -759,7 +774,10 @@ function AddToProjectControl({
           </span>
           <select
             value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
+            onChange={(e) => {
+              setProjectId(e.target.value)
+              setPackageId('') // packages are project-specific
+            }}
             className={selectCls}
           >
             <option value="">— pick a project —</option>
@@ -770,6 +788,26 @@ function AddToProjectControl({
             ))}
           </select>
         </label>
+        {projectId && projectPackages.length > 0 && (
+          <label className="flex flex-col gap-0.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+              Package
+            </span>
+            <select
+              value={packageId}
+              onChange={(e) => setPackageId(e.target.value)}
+              className={selectCls}
+            >
+              <option value="">— none —</option>
+              {projectPackages.map((pkg) => (
+                <option key={pkg.id} value={pkg.id}>
+                  {packageLabel(pkg)}
+                  {pkg.price > 0 ? ` · ${pkg.price.toLocaleString()}` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="flex flex-col gap-0.5">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">
             Rep
